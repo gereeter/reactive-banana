@@ -7,7 +7,7 @@ module Reactive.Banana.Internal.Cached (
     -- and then retrieving values from a cache.
     -- 
     -- Very useful for observable sharing.
-    HasVault(..),
+    HasST(..),
     Cached, runCached, mkCached, fromPure,
     liftCached1, liftCached2,
     ) where
