@@ -14,9 +14,10 @@ module Reactive.Banana.Internal.Cached (
 
 import Control.Monad
 import Control.Monad.Fix
-import Data.Unique.Really
-import qualified Data.Vault as Vault
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Unsafe
 import System.IO.Unsafe
+import Data.STRef
 
 {-----------------------------------------------------------------------------
     Cache type
@@ -26,31 +27,30 @@ data Cached m a = Cached (m a)
 runCached :: Cached m a -> m a
 runCached (Cached x) = x
 
--- | Type class for monads that have a 'Vault' that can be used.
-class (Monad m, MonadFix m) => HasVault m where
-    retrieve :: Vault.Key a -> m (Maybe a)
-    write    :: Vault.Key a -> a -> m ()
+-- | Type class for monads that have ST at their base.
+class (Monad m) => HasST m s | m -> s where
+    liftST :: ST s a -> m a
 
 -- | An action whose result will be cached.
 -- Executing the action the first time in the monad will
 -- execute the side effects. From then on,
 -- only the generated value will be returned.
 {-# NOINLINE mkCached #-}
-mkCached :: HasVault m => m a -> Cached m a
-mkCached m = unsafePerformIO $ do
-    key <- Vault.newKey
+mkCached :: (HasST m s, MonadFix m) => m a -> Cached m a
+mkCached m = unsafePerformIO $ unsafeSTToIO $ do -- because for some reason there is no unsafePerformST
+    var <- newSTRef Nothing
     return $ Cached $ do
-        ma <- retrieve key      -- look up calculation result
+        ma <- liftST (readSTRef var)      -- look up calculation result
         case ma of
             Nothing -> mdo
-                write key a     -- black-hole result first
-                a <- m          -- evaluate
+                liftST (writeSTRef var a) -- black-hole result first
+                a <- m                    -- evaluate
                 return a
-            Just a  -> return a -- return cached result
+            Just a  -> return a           -- return cached result
 
 -- | Return a pure value.
--- Doesn't make use of the cache 'Vault'.
-fromPure :: HasVault m => a -> Cached m a
+-- Doesn't make use of the cache.
+fromPure :: (HasST m s, MonadFix m) => a -> Cached m a
 fromPure = Cached . return
 
 liftCached1
